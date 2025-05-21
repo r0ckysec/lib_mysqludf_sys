@@ -1,4 +1,4 @@
-name: Build lib_mysqludf_sys for ARM/ARM64 with MySQL 5.7
+name: Build lib_mysqludf_sys for ARM/ARM64 with MariaDB
 
 on: [push, pull_request]
 
@@ -21,33 +21,26 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       
-      # 安装MySQL 5.7开发环境和编译工具链
-      - name: Install MySQL 5.7 dependencies
+      # 安装MariaDB开发环境和编译工具链
+      - name: Install MariaDB dependencies
         run: |
-          # 解决GPG密钥错误
-          sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys B7B3B788A8D3785C
-          
-          # 添加MySQL 5.7 APT仓库
-          wget https://dev.mysql.com/get/mysql-apt-config_0.8.22-1_all.deb
-          echo "mysql-apt-config mysql-apt-config/select-server select mysql-5.7" | sudo debconf-set-selections
-          sudo DEBIAN_FRONTEND=noninteractive dpkg -i mysql-apt-config_0.8.22-1_all.deb
           sudo apt-get update
           
-          # 安装交叉编译工具链和MySQL 5.7开发包
+          # 安装MariaDB服务器和开发包
+          sudo apt-get install -y mariadb-server libmariadb-dev-compat libmariadb-dev
+          
+          # 安装交叉编译工具链
           sudo apt-get install -y build-essential gcc make
           if [ "${{ matrix.platform }}" = "arm" ]; then
-            sudo apt-get install -y gcc-arm-linux-gnueabihf libmysqlclient-dev=5.7.*
+            sudo apt-get install -y gcc-arm-linux-gnueabihf
           else
-            sudo apt-get install -y gcc-aarch64-linux-gnu libmysqlclient-dev=5.7.*
+            sudo apt-get install -y gcc-aarch64-linux-gnu
           fi
-          
-          # 确保安装了正确的MySQL头文件
-          sudo apt-get install -y mysql-community-client=5.7.* mysql-common=5.7.*
       
-      # 修改源代码以兼容MySQL 5.7
-      - name: Modify source code for MySQL 5.7
+      # 修改源代码以兼容MariaDB
+      - name: Modify source code for MariaDB
         run: |
-          # 移除my_global.h引用（MySQL 8.0+不再需要）
+          # 移除my_global.h引用
           sed -i 's/#include <my_global.h>//' lib_mysqludf_sys.c
           
           # 确保包含正确的MySQL头文件
@@ -64,7 +57,7 @@ jobs:
             export CC=aarch64-linux-gnu-gcc
           fi
           
-          # 添加MySQL 5.7头文件路径
+          # 添加MariaDB头文件路径
           make LIBDIR=/usr/lib MYSQL_INCLUDE=/usr/include/mysql
       
       # 上传编译产物
