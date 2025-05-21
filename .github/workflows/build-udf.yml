@@ -19,16 +19,17 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
+    # 使用条件判断来决定构建哪些架构
     strategy:
       matrix:
-        arch: ['x86', 'arm', 'arm64']
-        exclude:
+        include:
           - arch: 'x86'
-            when: github.event_name == 'workflow_dispatch' && github.event.inputs.target_arch != 'x86'
+            condition: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.target_arch == 'x86' }}
           - arch: 'arm'
-            when: github.event_name == 'workflow_dispatch' && github.event.inputs.target_arch != 'arm'
+            condition: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.target_arch == 'arm' }}
           - arch: 'arm64'
-            when: github.event_name == 'workflow_dispatch' && github.event.inputs.target_arch != 'arm64'
+            condition: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.target_arch == 'arm64' }}
     
     steps:
     - uses: actions/checkout@v4
@@ -49,27 +50,28 @@ jobs:
         sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
         
     - name: Compile for x86
-      if: matrix.arch == 'x86'
+      if: matrix.arch == 'x86' && matrix.condition
       run: |
         gcc -Wall -I/usr/include/mysql -I. -shared -fPIC lib_mysqludf_sys.c -o lib_mysqludf_sys.so
         mkdir -p artifacts/x86
         mv lib_mysqludf_sys.so artifacts/x86/
         
     - name: Cross-compile for ARM
-      if: matrix.arch == 'arm'
+      if: matrix.arch == 'arm' && matrix.condition
       run: |
         arm-linux-gnueabi-gcc -Wall -I/usr/include/mysql -I. -shared -fPIC lib_mysqludf_sys.c -o lib_mysqludf_sys-arm.so
         mkdir -p artifacts/arm
         mv lib_mysqludf_sys-arm.so artifacts/arm/
         
     - name: Cross-compile for ARM64
-      if: matrix.arch == 'arm64'
+      if: matrix.arch == 'arm64' && matrix.condition
       run: |
         aarch64-linux-gnu-gcc -Wall -I/usr/include/mysql -I. -shared -fPIC lib_mysqludf_sys.c -o lib_mysqludf_sys-arm64.so
         mkdir -p artifacts/arm64
         mv lib_mysqludf_sys-arm64.so artifacts/arm64/
         
     - name: Upload artifacts
+      if: matrix.condition
       uses: actions/upload-artifact@v3
       with:
         name: udf-binaries-${{ matrix.arch }}
