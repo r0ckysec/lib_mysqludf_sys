@@ -1,48 +1,50 @@
-name: MySQL UDF ARM64 Build
+name: Build lib_mysqludf_sys for ARM/ARM64
 
-on: [push, workflow_dispatch]
+on: [push, pull_request]
 
 jobs:
   build:
+    strategy:
+      matrix:
+        platform: [arm, arm64]
     runs-on: ubuntu-latest
-    
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up build environment
-      run: |
-        sudo apt-get update
-        # 安装交叉编译工具和 MySQL 开发包
-        sudo apt-get install -y \
-          gcc-aarch64-linux-gnu \
-          g++-aarch64-linux-gnu \
-          libmysqlclient-dev \
-          mysql-common \
-          libmysqlclient21
-        
-    - name: Cross-compile for ARM64
-      run: |
-        # 自动检测 MySQL 头文件路径
-        if command -v mysql_config >/dev/null; then
-          MYSQL_INCLUDE=$(mysql_config --include | sed 's/-I//g' | awk '{print $1}')
-        else
-          MYSQL_INCLUDE="/usr/include/mysql"
-        fi
-        
-        echo "Using MySQL include path: $MYSQL_INCLUDE"
-        
-        aarch64-linux-gnu-gcc -Wall \
-          -I$MYSQL_INCLUDE \
-          -I. \
-          -shared -fPIC \
-          lib_mysqludf_sys.c \
-          -o lib_mysqludf_sys-arm64.so
-        
-        # 验证编译结果
-        file lib_mysqludf_sys-arm64.so
-        
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: mysql-udf-arm64
-        path: lib_mysqludf_sys-arm64.so
+      - uses: actions/checkout@v4
+      
+      # 设置QEMU模拟器用于跨架构编译
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+        with:
+          platforms: ${{ matrix.platform }}
+      
+      # 设置Docker构建x环境
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      # 安装MySQL开发环境和编译工具链
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc make
+          if [ "${{ matrix.platform }}" = "arm" ]; then
+            sudo apt-get install -y gcc-arm-linux-gnueabihf libmysqlclient-dev:armhf
+          else
+            sudo apt-get install -y gcc-aarch64-linux-gnu libmysqlclient-dev:arm64
+          fi
+      
+      # 编译项目
+      - name: Compile lib_mysqludf_sys
+        run: |
+          if [ "${{ matrix.platform }}" = "arm" ]; then
+            export CC=arm-linux-gnueabihf-gcc
+          else
+            export CC=aarch64-linux-gnu-gcc
+          fi
+          make LIBDIR=/usr/lib
+      
+      # 上传编译产物
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: lib_mysqludf_sys-${{ matrix.platform }}
+          path: lib_mysqludf_sys.so
