@@ -24,14 +24,16 @@ jobs:
       # 安装MySQL 5.7开发环境和编译工具链
       - name: Install MySQL 5.7 dependencies
         run: |
+          # 解决GPG密钥错误
+          sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys B7B3B788A8D3785C
+          
+          # 添加MySQL 5.7 APT仓库
+          wget https://dev.mysql.com/get/mysql-apt-config_0.8.22-1_all.deb
+          echo "mysql-apt-config mysql-apt-config/select-server select mysql-5.7" | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive dpkg -i mysql-apt-config_0.8.22-1_all.deb
           sudo apt-get update
           
-          # 添加MySQL 5.7的APT仓库
-          wget https://dev.mysql.com/get/mysql-apt-config_0.8.10-1_all.deb
-          sudo dpkg -i mysql-apt-config_0.8.10-1_all.deb
-          sudo apt-get update
-          
-          # 安装交叉编译工具链
+          # 安装交叉编译工具链和MySQL 5.7开发包
           sudo apt-get install -y build-essential gcc make
           if [ "${{ matrix.platform }}" = "arm" ]; then
             sudo apt-get install -y gcc-arm-linux-gnueabihf libmysqlclient-dev=5.7.*
