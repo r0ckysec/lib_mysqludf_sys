@@ -1,4 +1,4 @@
-name: Build lib_mysqludf_sys for ARM/ARM64
+name: Build lib_mysqludf_sys for ARM/ARM64 with MySQL 5.7
 
 on: [push, pull_request]
 
@@ -21,15 +21,36 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       
-      # 安装MySQL开发环境和编译工具链
-      - name: Install dependencies
+      # 安装MySQL 5.7开发环境和编译工具链
+      - name: Install MySQL 5.7 dependencies
         run: |
           sudo apt-get update
+          
+          # 添加MySQL 5.7的APT仓库
+          wget https://dev.mysql.com/get/mysql-apt-config_0.8.10-1_all.deb
+          sudo dpkg -i mysql-apt-config_0.8.10-1_all.deb
+          sudo apt-get update
+          
+          # 安装交叉编译工具链
           sudo apt-get install -y build-essential gcc make
           if [ "${{ matrix.platform }}" = "arm" ]; then
-            sudo apt-get install -y gcc-arm-linux-gnueabihf libmysqlclient-dev
+            sudo apt-get install -y gcc-arm-linux-gnueabihf libmysqlclient-dev=5.7.*
           else
-            sudo apt-get install -y gcc-aarch64-linux-gnu libmysqlclient-dev
+            sudo apt-get install -y gcc-aarch64-linux-gnu libmysqlclient-dev=5.7.*
+          fi
+          
+          # 确保安装了正确的MySQL头文件
+          sudo apt-get install -y mysql-community-client=5.7.* mysql-common=5.7.*
+      
+      # 修改源代码以兼容MySQL 5.7
+      - name: Modify source code for MySQL 5.7
+        run: |
+          # 移除my_global.h引用（MySQL 8.0+不再需要）
+          sed -i 's/#include <my_global.h>//' lib_mysqludf_sys.c
+          
+          # 确保包含正确的MySQL头文件
+          if ! grep -q "#include <mysql.h>" lib_mysqludf_sys.c; then
+            sed -i '1i#include <mysql.h>' lib_mysqludf_sys.c
           fi
       
       # 编译项目
@@ -40,7 +61,9 @@ jobs:
           else
             export CC=aarch64-linux-gnu-gcc
           fi
-          make LIBDIR=/usr/lib
+          
+          # 添加MySQL 5.7头文件路径
+          make LIBDIR=/usr/lib MYSQL_INCLUDE=/usr/include/mysql
       
       # 上传编译产物
       - name: Upload artifacts
