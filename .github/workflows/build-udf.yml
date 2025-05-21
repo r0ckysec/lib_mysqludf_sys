@@ -1,55 +1,76 @@
-name: Cross-Platform Build
+name: Cross-Platform MySQL UDF Build
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      target_arch:
+        description: 'Target architecture (arm/arm64/x86)'
+        required: true
+        default: 'x86'
+      build_type:
+        description: 'Build type (debug/release)'
+        required: false
+        default: 'release'
 
 jobs:
   build:
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        platform: [ubuntu-latest, arm64]
-    runs-on: ${{ matrix.platform }}
+        arch: ['x86', 'arm', 'arm64']
+        exclude:
+          - arch: 'x86'
+            when: github.event_name == 'workflow_dispatch' && github.event.inputs.target_arch != 'x86'
+          - arch: 'arm'
+            when: github.event_name == 'workflow_dispatch' && github.event.inputs.target_arch != 'arm'
+          - arch: 'arm64'
+            when: github.event_name == 'workflow_dispatch' && github.event.inputs.target_arch != 'arm64'
     
     steps:
     - uses: actions/checkout@v4
     
-    # 设置MySQL开发环境
     - name: Set up MySQL dev environment
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential cmake libmysqlclient-dev
         
-    # 对于ARM64平台的特殊处理
-    - name: Setup ARM64 toolchain (if needed)
-      if: matrix.platform == 'arm64'
+    - name: Set up ARM toolchain (ARM only)
+      if: matrix.arch == 'arm'
+      run: |
+        sudo apt-get install -y gcc-arm-linux-gnueabi g++-arm-linux-gnueabi
+        
+    - name: Set up ARM64 toolchain (ARM64 only)
+      if: matrix.arch == 'arm64'
       run: |
         sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
         
-    # 编译步骤
-    - name: Compile for native architecture
-      if: matrix.platform == 'ubuntu-latest'
+    - name: Compile for x86
+      if: matrix.arch == 'x86'
       run: |
-        make LIBDIR=$PWD
+        gcc -Wall -I/usr/include/mysql -I. -shared -fPIC lib_mysqludf_sys.c -o lib_mysqludf_sys.so
+        mkdir -p artifacts/x86
+        mv lib_mysqludf_sys.so artifacts/x86/
         
-    # ARM64交叉编译
+    - name: Cross-compile for ARM
+      if: matrix.arch == 'arm'
+      run: |
+        arm-linux-gnueabi-gcc -Wall -I/usr/include/mysql -I. -shared -fPIC lib_mysqludf_sys.c -o lib_mysqludf_sys-arm.so
+        mkdir -p artifacts/arm
+        mv lib_mysqludf_sys-arm.so artifacts/arm/
+        
     - name: Cross-compile for ARM64
-      if: matrix.platform == 'ubuntu-latest'
+      if: matrix.arch == 'arm64'
       run: |
-        aarch64-linux-gnu-gcc -Wall -I/usr/include/mysql -I. -shared lib_mysqludf_sys.c \
-          -o lib_mysqludf_sys-arm64.so
+        aarch64-linux-gnu-gcc -Wall -I/usr/include/mysql -I. -shared -fPIC lib_mysqludf_sys.c -o lib_mysqludf_sys-arm64.so
+        mkdir -p artifacts/arm64
+        mv lib_mysqludf_sys-arm64.so artifacts/arm64/
         
-    # 在原生ARM64平台上编译
-    - name: Native compile on ARM64
-      if: matrix.platform == 'arm64'
-      run: |
-        make LIBDIR=$PWD
-        mv lib_mysqludf_sys.so lib_mysqludf_sys-arm64-native.so
-        
-    # 打包制品
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
       with:
-        name: udf-binaries
-        path: |
-          lib_mysqludf_sys.so
-          lib_mysqludf_sys-arm64.so
-          lib_mysqludf_sys-arm64-native.so
+        name: udf-binaries-${{ matrix.arch }}
+        path: artifacts/${{ matrix.arch }}/*
