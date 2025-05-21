@@ -1,0 +1,50 @@
+name: Build MySQL UDF for ARM/ARM64
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch:
+          - target: armv7    # ARMv7 (32位)
+            cc: arm-linux-gnueabihf-gcc
+            flags: "-march=armv7-a"
+          - target: aarch64  # ARM64 (64位)
+            cc: aarch64-linux-gnu-gcc
+            flags: "-march=armv8-a"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install ARM toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-arm-linux-gnueabihf \  # ARMv7 工具链
+            gcc-aarch64-linux-gnu     # ARM64 工具链
+
+      - name: Install MySQL dev libraries
+        run: |
+          sudo apt-get install -y libmysqlclient-dev
+
+      - name: Compile for ${{ matrix.arch.target }}
+        env:
+          CC: ${{ matrix.arch.cc }}
+          CFLAGS: ${{ matrix.arch.flags }}
+        run: |
+          mkdir -p dist
+          $CC $CFLAGS -fPIC -Wall -I/usr/include/mysql \
+              -shared lib_mysqludf_sys.c -o dist/lib_mysqludf_sys_${{ matrix.arch.target }}.so
+          file dist/lib_mysqludf_sys_${{ matrix.arch.target }}.so  # 验证架构
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: udf-${{ matrix.arch.target }}
+          path: dist/lib_mysqludf_sys_${{ matrix.arch.target }}.so
