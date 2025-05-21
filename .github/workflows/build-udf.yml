@@ -1,75 +1,55 @@
-name: Cross-platform UDF Build
+name: Cross-Platform Build
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+on: [push, pull_request]
 
 jobs:
   build:
     strategy:
       matrix:
-        platform: [arm, arm64]
-    runs-on: ubuntu-latest
+        platform: [ubuntu-latest, arm64]
+    runs-on: ${{ matrix.platform }}
+    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Install build essentials
+    - uses: actions/checkout@v4
+    
+    # 设置MySQL开发环境
+    - name: Set up MySQL dev environment
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential
-
-    - name: Install cross-compilation tools
-      run: |
-        if [ "${{ matrix.platform }}" = "arm" ]; then
-          sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
-        else
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-        fi
-
-    - name: Install MariaDB development packages
-      run: |
-        sudo apt-get install -y libmariadb-dev libmariadb-dev-compat default-libmysqlclient-dev
-
-    - name: Verify MySQL headers
-      run: |
-        echo "Searching for MySQL/MariaDB headers..."
-        sudo find /usr -name my_global.h -type f 2>/dev/null || echo "No my_global.h found"
-        echo "MariaDB packages installed:"
-        dpkg -l | grep mariadb
-
-    - name: Compile for ${{ matrix.platform }}
-      run: |
-        # 设置默认包含路径
-        MYSQL_INCLUDES="-I/usr/include/mysql -I/usr/include/mariadb -I/usr/include/mysql/server"
+        sudo apt-get install -y build-essential cmake libmysqlclient-dev
         
-        if [ "${{ matrix.platform }}" = "arm" ]; then
-          CC=arm-linux-gnueabihf-gcc
-          FLAGS="-march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=hard"
-        else
-          CC=aarch64-linux-gnu-gcc
-          FLAGS="-march=armv8-a"
-        fi
+    # 对于ARM64平台的特殊处理
+    - name: Setup ARM64 toolchain (if needed)
+      if: matrix.platform == 'arm64'
+      run: |
+        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
         
-        echo "Compiling for ${{ matrix.platform }}..."
-        $CC $FLAGS -DMYSQL_DYNAMIC_PLUGIN -fPIC -Wall \
-          $MYSQL_INCLUDES \
-          -I. \
-          -shared lib_mysqludf_sys.c -o lib_mysqludf_sys_${{ matrix.platform }}.so
+    # 编译步骤
+    - name: Compile for native architecture
+      if: matrix.platform == 'ubuntu-latest'
+      run: |
+        make LIBDIR=$PWD
         
-        # 验证生成的.so文件
-        file lib_mysqludf_sys_${{ matrix.platform }}.so
-
+    # ARM64交叉编译
+    - name: Cross-compile for ARM64
+      if: matrix.platform == 'ubuntu-latest'
+      run: |
+        aarch64-linux-gnu-gcc -Wall -I/usr/include/mysql -I. -shared lib_mysqludf_sys.c \
+          -o lib_mysqludf_sys-arm64.so
+        
+    # 在原生ARM64平台上编译
+    - name: Native compile on ARM64
+      if: matrix.platform == 'arm64'
+      run: |
+        make LIBDIR=$PWD
+        mv lib_mysqludf_sys.so lib_mysqludf_sys-arm64-native.so
+        
+    # 打包制品
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
-        name: lib_mysqludf_sys_${{ matrix.platform }}.so
-        path: lib_mysqludf_sys_${{ matrix.platform }}.so
+        name: udf-binaries
+        path: |
+          lib_mysqludf_sys.so
+          lib_mysqludf_sys-arm64.so
+          lib_mysqludf_sys-arm64-native.so
