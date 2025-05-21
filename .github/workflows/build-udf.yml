@@ -17,15 +17,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Install cross-compilation toolchain
+    - name: Install dependencies
       run: |
         sudo apt-get update
+        sudo apt-get install -y libmariadb-dev mariadb-server
         if [ "${{ matrix.platform }}" = "arm" ]; then
           sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
         else
@@ -36,15 +31,16 @@ jobs:
       run: |
         if [ "${{ matrix.platform }}" = "arm" ]; then
           CC=arm-linux-gnueabihf-gcc
-          TARGET=arm-linux-gnueabihf
           FLAGS="-march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=hard"
         else
           CC=aarch64-linux-gnu-gcc
-          TARGET=aarch64-linux-gnu
           FLAGS="-march=armv8-a"
         fi
         
-        $CC $FLAGS -DMYSQL_DYNAMIC_PLUGIN -fPIC -Wall -I/usr/include/mysql -shared lib_mysqludf_sys.c -o lib_mysqludf_sys_${{ matrix.platform }}.so
+        $CC $FLAGS -DMYSQL_DYNAMIC_PLUGIN -fPIC -Wall \
+          -I/usr/include/mysql \
+          -I/usr/include/mysql/server \
+          -shared lib_mysqludf_sys.c -o lib_mysqludf_sys_${{ matrix.platform }}.so
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
